@@ -1,0 +1,200 @@
+---
+title: "Bike Share Regression Model (Kaggle Competition)"
+author: "Judy Chen"
+date: "2024-01-08"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Bike-sharing Overview
+Bike-sharing systems have emerged as a popular solution for urban transportation needs, offering a flexible and eco-friendly alternative for commuters and leisure riders. In this report, we delve into the realm of predictive modeling for a major city's bike-sharing platform, aiming to construct a regression model capable of forecasting hourly bike demand.
+
+In this competition, we will use linear regression to forecast demand for an urban bike-sharing platform. This assignment will forecast demand for bikes in a bike-sharing system. We are provided with hourly rental data spanning two years. For this competition, the training set comprises the first 13 days of each month, while the test set is the 14th through the 19th of the month. We must predict the total count of bikes rented during each hour covered by the test set. Our forecasts will be assessed based on RMSE.
+
+
+
+Let's import the required packages and set up the working environment first:
+
+```{r cars}
+library(GGally)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(vtable)
+library(gmodels)
+library(GGally)
+library(performance)
+library(car)
+library(reshape2)
+```
+```{r}
+rm(list=ls())
+setwd("~/Desktop/Sping Course/Supply Chain/bike share")
+```
+
+Upload the training data and testing data. Then we can examine the data frame:
+
+```{r}
+bike_train<-read.csv("cleaned bike sharing training for students.csv")
+head(bike_train)
+
+bike_test<-read.csv("cleaned bike sharing test for students.csv")
+head(bike_test)
+```
+Try to examine the format of each variable:
+```{r}
+summary(bike_train)
+```
+
+We can observe that the variables "dayname," "monthname," "seasonname," and "weathername" are in character format. Therefore, to build the regression model, we need to convert the character format into dummy variables. We can achieve this by using the factor() function. This function will convert each of the specified columns into a factor variable with levels based on the unique values present in the original column. When these factor variables are used in a linear regression model, R will automatically handle them as dummy variables, creating binary variables for each level of the factor.
+
+```{r}
+bike_train$dayname <- factor(bike_train$dayname)
+bike_train$monthname <- factor(bike_train$monthname)
+bike_train$seasonname <- factor(bike_train$seasonname)
+bike_train$weathername <- factor(bike_train$weathername)
+```
+
+```{r}
+# Extract X variables into separate data frame, convert to numeric values and correlate
+bike_corr<-bike_train[,2:11]
+bike_corr<-as.data.frame(lapply(bike_corr,as.numeric))
+cor(bike_corr)
+```
+
+
+## Build Modeling 
+Let's try linear regression first. Let's attempt the full model.
+```{r}
+fit_full<-lm(count ~ daynum + hour + dayname + monthname + workingday + atemp + humidity + windspeed + seasonname + weathername, data = bike_train)
+summary(fit_full)
+```
+From the above result, the presence of "NA" (Not Available) values in the summary output of our linear regression model indicates that certain coefficients could not be estimated due to singularities or collinearities in the data. Singularities occur when predictor variables are linearly dependent on each other, leading to a loss of degrees of freedom in the model estimation process. In our case, the "NA" values appear for the coefficients related to the seasonname predictor variables (seasonnamespring, seasonnamesummer, seasonnamewinter), suggesting that there may be perfect multicollinearity among the levels of the seasonname variable. Perfect multicollinearity occurs when one predictor variable can be perfectly predicted from the others, which can lead to numerical instability in the estimation of coefficients.
+
+Then we need to calculate the RMSE of the model.
+
+```{r}
+#Calculate the RMSE
+forecast_train_count <- predict(fit_full, bike_train)
+RMSE_train_count<-sqrt(mean((bike_train$count-forecast_train_count)^2))
+RMSE_train_count
+```
+
+Also, we can identify patterns in the residuals, such as heteroscedasticity (unequal variance) or non-linearity. This function produces a diagnostic plot of the normal quantiles of the standardized residuals. It is used to assess the normality assumption of the residuals. If the points in the plot deviate significantly from a straight line, it suggests departures from normality in the residuals.
+
+
+```{r}
+plot(fit_full,which=1)
+plot(fit_full,which=2)
+```
+The pattern in the residuals does not appear to be randomly scattered around the horizontal axis. This suggests that the full model may not perform optimally. Additionally, the QQ plot of the residuals does not align closely with the 45-degree line, further indicating that the model may not be satisfactory.
+
+
+we could look at actual v. predicted this way:
+```{r}
+# Combine actual and predicted values into a data frame
+plot_data <- data.frame(
+  daynum = bike_train$daynum,
+  actual = bike_train$count,
+  predicted = forecast_train_count
+)
+
+# Create a scatter plot of actual vs. predicted values
+ggplot(plot_data, aes(x = daynum)) +
+  geom_line(aes(y = actual, colour = "Actual"), stat = "summary", fun = "mean") +
+  geom_line(aes(y = predicted, colour = "Predicted"), stat = "summary", fun = "mean")
+
+```
+
+
+
+## Feature Selection
+Next, we remove any variables that are not statistically significant (i.e., those with high p-values) to simplify the model and potentially enhance its performance.
+
+```{r}
+fit1<-lm(count ~ daynum + hour + monthname + atemp + humidity + windspeed +  weathername, data = bike_train)
+summary(fit1)
+```
+After removing non-significant variables, the R-squared value is 0.4084, which is slightly smaller than that of the full model, where the R-squared value is 0.4096.
+
+
+```{r}
+#Calculate the RMSE
+forecast_train_count1 <- predict(fit1, bike_train)
+RMSE_train_count1<-sqrt(mean((bike_train$count-forecast_train_count1)^2))
+RMSE_train_count1
+```
+Compared to full model, this model seems not improve very much. RMSE is 138.3973, which is larger than the RMSE of full model, 138.2583.
+
+
+```{r}
+#Non-constant variance?
+plot(fit1,which=1)
+#Are Residuals normally distributed
+plot(fit1,which=2)
+```
+
+we could look at actual v. predicted this way:
+```{r}
+# Combine actual and predicted values into a data frame
+plot_data <- data.frame(
+  daynum = bike_train$daynum,
+  actual = bike_train$count,
+  predicted = forecast_train_count1
+)
+
+# Create a scatter plot of actual vs. predicted values
+ggplot(plot_data, aes(x = daynum)) +
+  geom_line(aes(y = actual, colour = "Actual"), stat = "summary", fun = "mean") +
+  geom_line(aes(y = predicted, colour = "Predicted"), stat = "summary", fun = "mean")
+```
+
+## Testing Data
+After thorough examination of various models, we concluded that the full model yielded the most promising results. Consequently, we proceeded to utilize this comprehensive model for making predictions. Upon importing the testing data, we generated predictions for the count variable. Subsequently, we exported the results, which were then submitted to the Kaggle competition.
+
+```{r}
+forecast_test_count <- predict(fit1,bike_test)
+submit <- read.csv("bike sharing sample submission.csv")
+head(submit)
+submit[,2]<-forecast_test_count #sticked format
+
+head(submit, n = 10)
+
+write.csv(submit, file="bike submission_knit.csv",row.names=F)
+
+```
+
+
+
+
+
+
+## Conclusion
+
+In this study, we developed a regression model to forecast bike demand in an urban bike-sharing system. We began by implementing a full regression model that included various predictors such as day of the week, month, weather conditions, and temperature. Subsequently, we evaluated the model's performance using the root mean squared error (RMSE) metric. However, our attempts to enhance the model's performance through feature selection did not yield significant improvements, as the selected model did not outperform the full model.
+
+
+## Future Work
+
+Moving forward, there are several avenues for future research and improvement. Firstly, exploring alternative modeling techniques beyond linear regression, such as decision trees, random forests, or neural networks, could offer better predictive capabilities by capturing nonlinear relationships in the data. Additionally, incorporating additional data sources, such as demographic information, traffic patterns, or special events, may provide further insights into bike demand dynamics. Moreover, conducting more in-depth analyses of feature importance and interaction effects could enhance the model's interpretability and predictive accuracy. Overall, continued research in this area has the potential to improve bike-sharing system management and enhance urban mobility solutions.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
